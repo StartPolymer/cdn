@@ -7,9 +7,9 @@ Suitable for online editors [JSFiddle](https://jsfiddle.net/StartPolymer/ww8hg0d
 
 ## Components
 
-[Components for Polymer v1](https://github.com/StartPolymer/cdn/tree/v1)
-[Components for Polymer v2](https://github.com/StartPolymer/cdn/tree/v2)
-[Components for Polymer v3](https://github.com/StartPolymer/cdn/tree/v3)
+- [Components for Polymer v1](https://github.com/StartPolymer/cdn/tree/v1)
+- [Components for Polymer v2](https://github.com/StartPolymer/cdn/tree/v2)
+- [Components for Polymer v3](https://github.com/StartPolymer/cdn/tree/v3)
 
 ## How to use
 
