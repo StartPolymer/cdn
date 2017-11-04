@@ -1,5 +1,7 @@
 # StartPolymer CDN
 
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://help.github.com/articles/about-pull-requests/)
+
 A mirror of Polymer's components so that they can be used directly from CDN. This mirror is quickly than [PolyGit](https://polygit.org).
 
 Suitable for online editors [JSFiddle](https://jsfiddle.net/StartPolymer/ww8hg0dp/) and
