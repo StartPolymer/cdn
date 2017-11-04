@@ -1,0 +1,371 @@
+<link rel="import" href="../polymer/polymer.html">
+<link rel="import" href="../polymerfire/firebase-query.html">
+<link rel="import" href="firebase-nest-behavior.html">
+<!--
+`firebase-nest` is a wrapper element around firebase-query and designed to work well with `firebase-value`.
+
+
+@demo demo/index.html 
+-->
+<dom-module id="firebase-nest">
+  <template>
+    <firebase-query id="query" log="[[log]]" size="{{size}}" order-by-child="[[orderByChild]]" order-by-value="[[orderByValue]]" start-at="[[startAt]]" end-at="[[endAt]]" equal-to="[[equalTo]]" limit-to-first="[[limitToFirst]]" limit-to-last="[[limitToLast]]" data="{{data}}" disabled="[[disabled]]" path="[[path]]" log="[[log]]" app="[[app]]" app-name="[[appName]]"></firebase-query>
+    <content></content>
+  </template>
+  <script>
+  Polymer({
+
+    is: 'firebase-nest',
+
+    behaviors: [
+      Polymer.firebaseNest.NestBehavior
+    ],
+
+    properties: {
+
+      /**
+       * Path to a Firebase root or endpoint. N.B. `path` is case sensitive.
+       */
+      path: {
+        type: String
+      },
+
+      /**
+       * The data to returned by firebase-query.
+       */
+      data: {
+        type: Array,
+        notify: true
+      },
+
+      /* 
+       * `nestedPath` the path to loop throught for loading data [{key: 'myKey', path: '/pathToDb', defaultValue: 'default value', appName: ''}]
+       */
+      nestedPath: {
+        type: Array,
+      },
+
+      /* 
+       * `loading` if nestedPath is set, loaded will be true when all nested path haev been loaded
+       */
+      loading: {
+        type: Boolean,
+        notify: true,
+        value: false,
+        readOnly: true
+      },
+
+      /* 
+       * `percentLoaded` 
+       */
+      percentLoaded: {
+        type: Number,
+        readOnly: true,
+        notify: true,
+        value: 0
+      },
+
+      _loadedCount: {
+        type: Number,
+        readOnly: true,
+        observer: '_observeLoadedCount'
+      },
+
+      _totalCount: {
+        readOnly: true,
+        type: Number
+      },
+      /* 
+       * `dataSource`  Function that provides items lazily. Receives arguments params, callback
+       *     params.page Requested page index
+       *     params.pageSize Current page size
+       *     params.filters Currently applied filters
+       *     params.sortOrders Currently applied sorting orders
+       */
+      dataSource: {
+        notify: true,
+        value: function() {
+          return this._dataSource.bind(this);
+        }
+      },
+
+      /**
+       * When true, Firebase listeners won't be activated. This can be useful
+       * in situations where elements are loaded into the DOM before they're
+       * ready to be activated (e.g. navigation, initialization scenarios).
+       */
+      disabled: {
+        type: Boolean,
+        value: false
+      },
+
+      /**
+       * When true, will perform detailed logging.
+       */
+      log: {
+        type: Boolean,
+        value: false
+      },
+
+      /**
+       * `size` reflect data.length. Size is debounced in firebase-query
+       */
+      size: {
+        type: Number,
+        notify: true
+      },
+
+    },
+
+    listeners: {
+
+      // 'firebase-value': 'onFirebaseValue'
+    },
+
+    observers: [
+      '_observeNestedPath(data, nestedPath)',
+      '_observeNestedPath(data, nestedPath.*)'
+    ],
+
+    attached: function() {
+      // IMPORTANT !
+      // we Highjack the behavior of firebase-query and prevent data to be written back to the db. If need be, we could go back to standard behavior depending on allowSync
+      this.$.query.__dataChanged = function() {};
+    },
+
+    _observeNestedPath: function() {
+      this.debounce('firebase-nest-do-nest', this._doNest, 50);
+    },
+
+    _observeLoadedCount: function() {
+      this.debounce('firebase-nest-calc-percent', this._doCalcPercent, 10);
+    },
+
+    _doCalcPercent: function() {
+      if (this._totalCount === 0) {
+        return this._setPercentLoaded(0);
+      }
+      this._setPercentLoaded(this._loadedCount / this._totalCount * 100);
+    },
+
+    _doNest: function() {
+      if (this.data && this.nestedPath) {
+        var me = this;
+        me._setLoading(true);
+        me._setPercentLoaded(0);
+
+        var database = firebase.database();
+        var nestedPath = this.nestedPath;
+        var data = this.data;
+
+        // this._set_totalCount(nestedPath.length * 4);
+        // this._set_totalCount(0);
+        this._set_loadedCount(0);
+
+        function forEachPromise(items, fn, context) {
+          // we use reduce to make sure we respect the order nestedPath while reading.
+          return items.reduce(function(promise, item) {
+            return promise.then(function() {
+              return fn(item, context);
+            });
+          }, Promise.resolve());
+        }
+
+        function readAllDataPromise(pathItem, data) {
+          // doing this to try improve performance (allow more parallel read when the order is not important), but no real improvement. Need further measurement. 
+          if (pathItem instanceof Array) {
+            return  Promise.all(pathItem.map(getPathItemReadFn(data)))
+          }
+          me._set_totalCount(me._totalCount || 0 + data.length);
+          return Promise.all(data.map(getReadFn(pathItem)));
+        }
+
+        function getPathItemReadFn(data) {
+          me._set_totalCount(me._totalCount || 0 + data.length);
+          return function(pathItem) {
+            return Promise.all(data.map(getReadFn(pathItem)));
+          }
+        }
+
+        // return a function returning a Promise that will read data 
+        function getReadFn(pathItem) {
+          return function(item) {
+            var db = pathItem.appName ? firebase.database(pathItem.appName) : database;
+            var ref = db.ref(parseBinding(pathItem.path, item));
+            var key = pathItem.key;
+            var defaultValue = pathItem.defaultValue;
+            return ref.once('value').then(function(snap) {
+              var exists = snap.exists();
+              if (exists || (defaultValue !== undefined)) {
+                var val = exists ? snap.val() : defaultValue;
+                if (Object(val) === val) {
+                  if (key) {
+                    if (!item[key]) {
+                      item[key] = {};
+                    }
+                    item = item[key];
+                  }
+                  Object.assign(item, val);
+                } else {
+                  //primitive 
+                  if (!key) {
+                    me._error('primitive value need a key');
+                  }
+                  item[key] = val;
+                }
+              }
+              me._set_loadedCount(me._loadedCount + 1);
+              return;
+            })
+          }
+        }
+
+        function parseBinding(txt, item) {
+          var binding = Polymer.Annotations._parseBindings(txt);
+          if (!binding) {
+            return txt;
+          }
+          return binding.map(function(b) {
+            if (b.literal) {
+              return b.literal;
+            }
+            var value;
+            var bind = b.value;
+            if (bind && (value = me.get(bind, me.dataHost))) {
+              return value;
+            }
+            // we need to remove potential item. (e.g. in [[item.key]]) 
+            bind = bind.startsWith('item.') ? bind.substr(5) : bind;
+            if (b.value && (value = me.get(bind, item))) {
+              return value;
+            }
+
+            me._error('cannot compute binding for ', txt);
+          }).join('');
+
+        }
+
+        console.time('readData');
+        forEachPromise(nestedPath, readAllDataPromise, data).then(() => {
+          console.timeEnd('readData');
+          console.log('Data: ', me.data);
+          me._setLoading(false);
+          me.notifyPath('data', me.data);
+        });
+      }
+    },
+
+    _dataSource: function(opts, cb) {
+      var items = this.data;
+      if (opts.filters.length) {
+        items = this._filter(items, opts.filters);
+      }
+      this.size = items.length;
+
+      if (opts.sortOrders.length) {
+        items = this._sort(items, opts.sortOrders);
+      }
+
+      var start = opts.page * opts.pageSize;
+      var end = start + opts.pageSize;
+      var slice = items.slice(start, end);
+      cb(slice, items.length);
+    },
+
+    _sort: function(items, sorters) {
+      this._sorters = sorters;
+      return items.sort(this._multiSort.bind(this));
+
+    },
+
+    _multiSort: function(a, b) {
+      return this._sorters.map(function(sort) {
+        if (sort.direction === 'asc') {
+          return this._compare(Polymer.Base.get(sort.path, a), Polymer.Base.get(sort.path, b));
+        } else if (sort.direction === 'desc') {
+          return this._compare(Polymer.Base.get(sort.path, b), Polymer.Base.get(sort.path, a));
+        }
+        return 0;
+      }, this).reduce(function firstNonZeroValue(p, n) {
+        return p ? p : n;
+      }, 0);
+    },
+
+    _normalizeEmptyValue: function(value) {
+      return [undefined, null].indexOf(value) >= 0 ? '' : value.toString();
+    },
+
+    _compare: function(a, b) {
+      a = this._normalizeEmptyValue(a);
+      b = this._normalizeEmptyValue(b);
+
+      if (a < b) {
+        return -1;
+      }
+      if (a > b) {
+        return 1;
+      }
+      return 0;
+    },
+
+    _filter: function(items, filters) {
+      return items.filter(function(item, index) {
+        return filters.filter(function(filter) {
+          var value = this._normalizeEmptyValue(Polymer.Base.get(filter.path, item));
+          return value.toLowerCase().indexOf(filter.value.toString().toLowerCase()) === -1;
+        }.bind(this)).length === 0;
+      }, this);
+    },
+
+    /*
+    onFirebaseValue: function(e, d) {
+      e.stopPropagation();
+
+      var firebaseKey = d.$key,
+        index = this.data.findIndex(function(d) {
+          return d.$key === firebaseKey;
+        });
+
+      //hack to prevent the change to be reflected to firebase !
+      this.$.query.__syncingToMemory = true;
+      this.set(['data', index].concat(d.key), d.value);
+      // this.notifyPath(['data', index]);
+      this.$.query.__syncingToMemory = false;
+
+      // if(this._useDataSource) {
+      //   this.fire('firebase-item-changed', {
+      //     item: this.data[index],
+
+      //   })
+      // }
+      // we might need to refresh some stuff based on this;
+      // console.info('NEST', d);
+      this.debounce('firebase-nest-refresh', function() {
+        // console.info('FIRE NEST', d);
+        // console.timeStamp('nest');
+        this.fire('firebase-nest-refresh', this.data);
+      }, 200);
+    }
+    */
+
+    /*
+      _computeDataAsObject: function(splices) {
+      if (splices && splices.indexSplices) {
+        splices.indexSplices.forEach(function(s) {
+          s.removed.forEach(function(removed) {
+            //work around this.delete not implemented https://github.com/Polymer/polymer/issues/2565
+            delete(this.dataAsObject[removed.$key]);
+            this.notifyPath('dataAsObject.' + removed.$key);
+          });
+          for (var i = 0; i < s.addedCount; i++) {
+            var index = s.index + i;
+            var obj = s.object[index];
+            this.set('dataAsObject.' + obj.$key, obj);
+          }
+        }, this);
+      }
+    }
+    */
+  });
+  </script>
+</dom-module>
