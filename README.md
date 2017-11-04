@@ -1,6 +1,6 @@
 # StartPolymer CDN
 
-A mirror of Polymer's components so that they can be used directly from CDN.
+A mirror of Polymer's components so that they can be used directly from CDN. This mirror is quickly than [PolyGit](https://polygit.org).
 
 Suitable for online editors [JSFiddle](https://jsfiddle.net/StartPolymer/ww8hg0dp/) and
 [Plunker](https://next.plnkr.co/edit/UFCR5v?p=preview) for creating, collaborating on and sharing your Polymer development ideas.
