@@ -1,5 +1,5 @@
 ```
-cdn /home/josef/projects/cdn
+cdn
 ├─┬ app-elements#2.0.0
 │ ├─┬ app-layout#2.0.4
 │ │ ├─┬ iron-flex-layout#2.0.1
